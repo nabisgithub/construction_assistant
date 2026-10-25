@@ -86,7 +86,80 @@ export const WOODWORKING_FIELD_RULES = `
 `;
 
 /**
- * [3] Claude API 주입용 최종 System Prompt
+ * [3] MCP Resource 본문 빌더
+ * - interior://dictionary/slang
+ * - interior://rules/settlement-and-woodworking
+ */
+export function buildSlangDictionaryText(): string {
+  return INTERIOR_SLANG_DICTIONARY.map(s => `- ${s.slang}: ${s.standard} (${s.note})`).join('\n');
+}
+
+export function buildSettlementRulesText(): string {
+  const { rates, woodworking } = INTERIOR_CONFIG;
+  return `
+[정산 룰]
+- 기본단가: 서울 ${rates.regions.seoul.pay.toLocaleString()}원 / 광주 ${rates.regions.gwangju.pay.toLocaleString()}원
+- 오야지: 본인 일당 + ${rates.leaderBonusMultiplier}품 (${rates.leaderBonusMultiplier * 100}% 가산)
+- 시외: +${rates.outOfTownSurcharge.toLocaleString()}원 추가
+- 지인 할인: ${rates.discountOptions.map(d => `${d.toLocaleString()}원`).join(' / ')}
+- 식대/참값: 선결제 후 청구 (합산)
+- 주유비: 지원 불가 (제외)
+
+[목공 룰]
+- 가정집/도배: 1P(원피), 300상
+- 상가/뻬인트(빼인트): 2P(투피), 450상
+- 면적: 평수 × ${woodworking.sqmPerPyeong}m², 벽면 계수 4면 1.0 / 5면(천장 포함) 1.25
+- 석고 장수: 올림(면적 × 벽면계수 ÷ 석고 1장 면적 × 겹수 × (1 + 로스율))
+  · 석고 3×6 = ${woodworking.gypsum['3x6'].areaSqm}m², 4×8 = ${woodworking.gypsum['4x8'].areaSqm}m²
+  · 1P 로스 ${woodworking.usageTypes.home1P.lossRate * 100}%, 2P 로스 ${woodworking.usageTypes.store2P.lossRate * 100}%
+- 다루끼 단수: 올림(평수 × 평당 단수 × 조인보강 계수)
+  · 300상 평당 ${woodworking.spacing['300'].bundlePerPyeong}단, 450상 평당 ${woodworking.spacing['450'].bundlePerPyeong}단, 조인보강 +${woodworking.joinExtraRate * 100}%
+
+${WOODWORKING_FIELD_RULES}`;
+}
+
+/**
+ * [4] MCP Tool Use 에이전트용 System Prompt (/api/mcp)
+ * 요청마다 동일한 문자열이어야 프롬프트 캐시가 적중한다 — 날짜·현장 목록 등 가변 정보는 넣지 말 것.
+ */
+export function generateInteriorAgentSystemPrompt(): string {
+  return `
+당신은 대한민국 30년 경력의 베테랑 인테리어 목수(아버지)의 전담 AI 시공 비서입니다.
+아버지의 비정형 음성 발화를 듣고, 제공된 도구(tool)를 호출해 앱 화면을 대신 조작합니다.
+
+[도구 호출 규칙]
+- 발화에 여러 요청이 섞여 있으면 필요한 도구를 한 번의 응답에서 모두(병렬로) 호출하세요.
+  예) "용인 상가 어제 오야지로 한 공수 반, 식대 만오천원, 그리고 거기 20평 상가 투피 석고 몇 장?"
+      → record_shift + calculate_materials 동시 호출
+- 언급되지 않은 값은 null 로 두세요. 기본값은 앱이 채웁니다. 추측으로 값을 만들지 마세요.
+- "어제", "그저께" 같은 상대 날짜는 [현재 상황]의 오늘 날짜 기준으로 YYYY-MM-DD 로 변환하세요.
+- "거기", "그 현장", "저번 거기"는 [현재 상황]의 등록된 현장·미입금 현장 목록과 같은 발화 안의 현장명으로 해석하세요.
+- 필수 정보가 빠졌으면 해당 도구 대신 ask_follow_up_question 을 호출하세요.
+  · 공수 등록인데 현장명 없음 → ASK_SITE_NAME
+  · 물량 계산인데 평수 없음 → ASK_PYEONG
+  · 입금 처리인데 어느 현장인지 불명확 → ASK_WHICH_SITE_PAID
+  draftData 에는 지금까지 파악한 도구 입력을 넣으세요.
+- [직전 되묻기]가 주어지면 아버지의 이번 발화는 그 질문에 대한 답입니다.
+  draftData 와 이번 답을 합쳐 원래 도구를 완성된 입력으로 다시 호출하세요. 초안 값(오야지, 공수 등)을 버리지 마세요.
+- site, memo 에는 아버지가 실제로 말한 표현을 최대한 그대로 보존하세요.
+- 도구 호출 외의 텍스트는 아버지께 들려드릴 한 문장 이내의 짧은 존댓말 확인 멘트만 쓰세요.
+- 어떤 도구에도 해당하지 않으면 도구를 호출하지 말고 짧게 되물으세요.
+
+[은어 → 도구 값 매핑]
+- 오야지 → isLeader true / 데마찌 → 보통 0.5공수
+- 원피·가정집·도배 → usageType home1P / 투피·상가·뻬인트 → usageType store2P
+- 삼육·사부꼬루 → boardType 3x6 / 사팔·시하찌 → boardType 4x8
+- 천장까지·덴죠 포함 → wallCount 5
+- 참값·밥값·식대 → mealExpense (주유비는 청구 불가이므로 넣지 않음)
+${buildSettlementRulesText()}
+
+[현장 은어 및 일본어 잔재 매핑]
+${buildSlangDictionaryText()}
+`;
+}
+
+/**
+ * [5] Claude API 주입용 최종 System Prompt (/api/interpret, 단일 의도 JSON)
  */
 export function generateInteriorSystemPrompt(): string {
   return `
