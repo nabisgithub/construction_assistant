@@ -2,10 +2,14 @@
 // 음성인식(STT) · 음성안내(TTS) 브릿지.
 // 안드로이드 앱에서는 순정 음성인식/TTS 엔진을, 웹에서는 Web Speech API를 사용한다.
 import { Capacitor } from '@capacitor/core';
-import { SpeechRecognition } from '@capacitor-community/speech-recognition';
-import { TextToSpeech } from '@capacitor-community/text-to-speech';
 
 const LANG = 'ko-KR';
+
+// 플러그인은 필요할 때 동적으로 불러온다. text-to-speech 의 ESM 엔트리가 import 시점에
+// window 를 참조해서, 정적 import 하면 서버 프리렌더(next build)가 깨진다.
+const loadSpeechRecognition = () =>
+  import('@capacitor-community/speech-recognition').then((m) => m.SpeechRecognition);
+const loadTextToSpeech = () => import('@capacitor-community/text-to-speech').then((m) => m.TextToSpeech);
 
 // TS 기본 lib.dom에 없는 Web Speech API 최소 타입.
 interface WebSpeechRecognitionEvent {
@@ -48,6 +52,7 @@ async function startNativeRecognition(
   onStateChange: (listening: boolean) => void,
 ): Promise<void> {
   try {
+    const SpeechRecognition = await loadSpeechRecognition();
     const { available } = await SpeechRecognition.available();
     if (!available) {
       onError('이 기기에서는 음성인식을 사용할 수 없습니다.');
@@ -123,6 +128,7 @@ function startWebRecognition(
 
 export async function stopSpeechRecognition(): Promise<void> {
   if (Capacitor.isNativePlatform()) {
+    const SpeechRecognition = await loadSpeechRecognition();
     await SpeechRecognition.stop().catch(() => {});
   } else {
     webRecognition?.stop();
@@ -135,6 +141,7 @@ export async function stopSpeechRecognition(): Promise<void> {
 export async function speakText(text: string): Promise<void> {
   if (!text) return;
   if (Capacitor.isNativePlatform()) {
+    const TextToSpeech = await loadTextToSpeech();
     await TextToSpeech.stop().catch(() => {});
     await TextToSpeech.speak({ text, lang: LANG, rate: 1.0 });
     return;

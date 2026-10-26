@@ -43,7 +43,11 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-export async function compressImage(source: string | Blob): Promise<string> {
+// decorate: 리사이즈된 캔버스 위에 스탬프 등을 그린 뒤 한 번만 JPEG 인코딩하도록 하는 훅.
+export async function compressImage(
+  source: string | Blob,
+  decorate?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+): Promise<string> {
   const objectUrl = typeof source === 'string' ? null : URL.createObjectURL(source);
   try {
     const img = await loadImage(objectUrl ?? (source as string));
@@ -59,6 +63,7 @@ export async function compressImage(source: string | Blob): Promise<string> {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, width, height);
+    decorate?.(ctx, width, height);
     return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
   } finally {
     if (objectUrl) URL.revokeObjectURL(objectUrl);

@@ -2,6 +2,9 @@
 // 공수 단가 · 목공 자재 산출 · 청구서 텍스트 생성 순수 함수.
 // app/page.tsx(UI)와 lib/mcp(서버 도구)가 같은 공식을 공유한다.
 import { INTERIOR_CONFIG } from '@/constants/interiorConfig';
+import type { BillingPeriod } from '@/constants/interpretIntent';
+
+export type { BillingPeriod };
 
 export type Region = keyof typeof INTERIOR_CONFIG.rates.regions;
 export type WallCount = 4 | 5;
@@ -152,4 +155,30 @@ export function generateKakaoBillText({ shifts, periodLabel, bankAccount }: Kaka
   text += `총 청구금액: ${(totalWages + totalMealExpense).toLocaleString()}원\n\n`;
   text += `입금계좌: ${bankAccount}`;
   return text;
+}
+
+// -------------------------------------------------------------
+// [4] 정산 기간 필터 · 날짜 유틸
+// -------------------------------------------------------------
+
+const monthPrefix = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+const prevYearMonth = (year: number, month: number) =>
+  month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+
+/** 기준 연·월(달력에 보이는 달)에 대한 정산 대상 공수 */
+export function selectBillingShifts(shifts: ShiftRecord[], period: BillingPeriod, year: number, month: number): ShiftRecord[] {
+  if (period === 'allUnpaid') return shifts.filter((s) => !s.isPaid);
+  const ym = period === 'prevMonth' ? prevYearMonth(year, month) : { year, month };
+  const prefix = monthPrefix(ym.year, ym.month);
+  return shifts.filter((s) => s.date.startsWith(prefix));
+}
+
+export function billingPeriodLabel(period: BillingPeriod, month: number, unpaidLabel = '전체 미입금건'): string {
+  if (period === 'allUnpaid') return unpaidLabel;
+  return `${period === 'prevMonth' ? prevYearMonth(2000, month).month : month}월`;
+}
+
+/** 로컬 시간 기준 YYYY-MM-DD (toISOString 은 UTC 라 새벽에 하루 밀린다) */
+export function toLocalISODate(d: Date = new Date()): string {
+  return `${monthPrefix(d.getFullYear(), d.getMonth() + 1)}-${String(d.getDate()).padStart(2, '0')}`;
 }
