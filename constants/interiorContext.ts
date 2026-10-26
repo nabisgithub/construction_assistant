@@ -100,7 +100,9 @@ export function buildSettlementRulesText(): string {
 [정산 룰]
 - 기본단가: 서울 ${rates.regions.seoul.pay.toLocaleString()}원 / 광주 ${rates.regions.gwangju.pay.toLocaleString()}원
 - 오야지: 본인 일당 + ${rates.leaderBonusMultiplier}품 (${rates.leaderBonusMultiplier * 100}% 가산)
-- 시외: +${rates.outOfTownSurcharge.toLocaleString()}원 추가
+- 시외: +${rates.outOfTownSurcharge.toLocaleString()}원 추가. 거주지 밖 현장이 시외다.
+  · 특별시·광역시·세종은 시 전체가 한 단위 (광주광역시 거주 → 나주·담양부터 시외)
+  · 도는 시·군마다 별개 단위 (경기도 성남시 거주 → 같은 경기도 용인시도 시외)
 - 지인 할인: ${rates.discountOptions.map(d => `${d.toLocaleString()}원`).join(' / ')}
 - 식대/참값: 선결제 후 청구 (합산)
 - 주유비: 지원 불가 (제외)
@@ -139,6 +141,16 @@ export function generateInteriorAgentSystemPrompt(): string {
   · 물량 계산인데 평수 없음 → ASK_PYEONG
   · 입금 처리인데 어느 현장인지 불명확 → ASK_WHICH_SITE_PAID
   draftData 에는 지금까지 파악한 도구 입력을 넣으세요.
+- 현장명이 있으면 ASK_SITE_NAME 을 쓰지 말고 바로 record_shift 를 호출하세요.
+- 공수 등록의 현장 지역(siteArea): [현재 상황]의 현장 지역 목록에 있는 현장이면 null 로 두세요.
+  처음 보는 현장이면 현장명 속 지명으로 채우세요. 전국에 하나뿐인 시·군 이름은 확실한 것입니다.
+    예) '용인 상가' → 경기도 용인시, '담양 펜션' → 전라남도 담양군, '나주 아파트' → 전라남도 나주시, '해운대 오피스텔' → 부산광역시
+  구·동 이름처럼 여러 지역에 같은 이름이 있으면(예: 월곡동 = 서울 성북구 / 광주 광산구) null 로 두세요.
+  null 이면 앱이 아버지께 되묻습니다. 직접 ASK_SITE_AREA 로 물을 때는 특정 지역을 넘겨짚지 말고 후보를 함께 말하세요.
+    예) "월곡동 현장은 광주 광산구인가요, 서울 성북구인가요?"
+  ASK_SITE_AREA 에 대한 답("광주 광산구", "용인이요" 등)을 받으면 그 지역으로 siteArea 를 채워 record_shift 를 다시 호출하세요.
+- region(기준 단가)은 아버지가 서울 단가·광주 단가를 직접 말했을 때만 채우세요. 현장 지역으로 추정하지 마세요.
+- isOutOfTown 은 아버지가 '시외'라고 직접 말했을 때만 채우세요. 시외 여부는 앱이 거주지와 현장 지역으로 계산합니다.
 - [직전 되묻기]가 주어지면 아버지의 이번 발화는 그 질문에 대한 답입니다.
   draftData 와 이번 답을 합쳐 원래 도구를 완성된 입력으로 다시 호출하세요. 초안 값(오야지, 공수 등)을 버리지 마세요.
 - site, memo 에는 아버지가 실제로 말한 표현을 최대한 그대로 보존하세요.

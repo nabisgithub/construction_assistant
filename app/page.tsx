@@ -5,6 +5,7 @@ import BottomNav, { type TabKey } from '@/components/BottomNav';
 import Header from '@/components/Header';
 import AskModal from '@/components/modals/AskModal';
 import ConfirmModal, { type ConfirmModalData } from '@/components/modals/ConfirmModal';
+import HomeAreaModal from '@/components/modals/HomeAreaModal';
 import BillingTab from '@/components/tabs/BillingTab';
 import MaterialTab, { DEFAULT_MATERIAL_FORM, type MaterialForm } from '@/components/tabs/MaterialTab';
 import PhotoTab from '@/components/tabs/PhotoTab';
@@ -24,6 +25,7 @@ import {
 } from '@/lib/calculations';
 import type { ToolCallResult } from '@/lib/mcp/interiorTools';
 import { speakText } from '@/lib/native/voiceBridge';
+import { formatArea } from '@/lib/region';
 import { shareTextContent } from '@/lib/native/shareBridge';
 
 const TOAST_MS = 3500;
@@ -63,6 +65,17 @@ export default function ConstructionApp() {
   const nextMonth = () =>
     setView(({ year, month }) => (month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 }));
 
+  const [homeModalOpen, setHomeModalOpen] = useState(false);
+  const showHomeModal = homeModalOpen || (ledger.hydrated && !ledger.homeArea);
+
+  // 현장명을 바꾸면 기억된 현장 지역으로 시외 여부를 자동으로 맞춘다 (모르는 현장이면 시외 버튼은 그대로).
+  const updateShiftForm = (patch: Partial<ShiftForm>) => {
+    if (patch.site === undefined) return ledger.updateForm(patch);
+    const siteArea = ledger.siteAreas[patch.site.trim()] ?? null;
+    const outOfTown = ledger.outOfTownFor(siteArea);
+    ledger.updateForm({ ...patch, siteArea, ...(outOfTown !== null && { isOutOfTown: outOfTown }) });
+  };
+
   const openShiftConfirm = (form: ShiftForm, date: string) => {
     const site = form.site.trim();
     if (!site) {
@@ -84,6 +97,12 @@ export default function ConstructionApp() {
       items: [
         { label: '작업 일자', value: date },
         { label: '현장명', value: site },
+        {
+          label: '현장 지역',
+          value: form.siteArea
+            ? `${formatArea(form.siteArea)} · ${form.isOutOfTown ? '시외 +1만' : '시내'}`
+            : form.isOutOfTown ? '시외 +1만' : '미확인 · 시내',
+        },
         { label: '적용 공수', value: `${form.shift}공수` },
         { label: '인건비 산출', value: `${pay.laborTotal.toLocaleString()}원` },
         { label: '작업 메모', value: form.memo.trim() || '없음' },
@@ -103,6 +122,7 @@ export default function ConstructionApp() {
           memo: form.memo.trim(),
         };
         ledger.addShift(record);
+        if (form.siteArea && !ledger.siteAreas[site]) ledger.rememberSiteArea(site, form.siteArea);
         goToDate(date);
         ledger.resetForm();
         setConfirmModalData(null);
@@ -223,6 +243,7 @@ export default function ConstructionApp() {
           discountAmount: d.discountAmount,
           expense: d.mealExpense ? String(d.mealExpense) : '',
           memo: d.memo ?? '',
+          siteArea: d.siteArea,
         };
         setTab('공수');
         goToDate(d.date);
@@ -294,6 +315,8 @@ export default function ConstructionApp() {
       activeTab: tab,
       knownSites: ledger.knownSites,
       unpaidSites: ledger.unpaidSites,
+      homeArea: ledger.homeArea,
+      siteAreas: ledger.siteAreas,
     }),
     onAction: handleAgentAction,
     notify: showToast,
@@ -304,7 +327,13 @@ export default function ConstructionApp() {
   return (
     <>
       <div className="min-h-screen pb-32 select-none antialiased bg-[#e0f2e9] text-[#000]">
-        <Header year={view.year} month={view.month} unpaidTotal={ledger.unpaidTotal} />
+        <Header
+          year={view.year}
+          month={view.month}
+          unpaidTotal={ledger.unpaidTotal}
+          homeLabel={ledger.homeArea ? formatArea(ledger.homeArea) : null}
+          onHomeClick={() => setHomeModalOpen(true)}
+        />
 
         {/* 대화 피드백 & 토스트 */}
         {toast && (
@@ -325,7 +354,7 @@ export default function ConstructionApp() {
               onPrevMonth={prevMonth}
               onNextMonth={nextMonth}
               form={ledger.form}
-              onFormChange={ledger.updateForm}
+              onFormChange={updateShiftForm}
               onSubmit={() => openShiftConfirm(ledger.form, selectedDate)}
               onTogglePaid={ledger.togglePaid}
               onDelete={ledger.deleteShift}
@@ -385,6 +414,18 @@ export default function ConstructionApp() {
             isAnalyzing={voice.isAnalyzing}
             onAnswer={handleMicPress}
             onCancel={voice.cancelQuestion}
+          />
+        )}
+
+        {showHomeModal && (
+          <HomeAreaModal
+            initial={ledger.homeArea}
+            onSave={(area) => {
+              ledger.setHomeArea(area);
+              setHomeModalOpen(false);
+              showToast(`🏠 거주지: ${formatArea(area)} — 이 밖의 현장은 시외로 계산합니다.`);
+            }}
+            onCancel={ledger.homeArea ? () => setHomeModalOpen(false) : undefined}
           />
         )}
 

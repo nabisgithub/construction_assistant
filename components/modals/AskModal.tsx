@@ -8,6 +8,7 @@ const DEFAULT_QUESTIONS: Record<FollowUpQuestionType, string> = {
   ASK_SITE_NAME: '어느 현장에서 일하셨나요?',
   ASK_PYEONG: '시공할 공간이 몇 평인가요?',
   ASK_WHICH_SITE_PAID: '어느 현장 돈이 들어왔나요?',
+  ASK_SITE_AREA: '현장이 어느 시·군에 있나요?',
 };
 
 interface AskModalProps {

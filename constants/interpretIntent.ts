@@ -2,6 +2,7 @@
 // 음성 발화 → 구조화된 "의도(Intent)" 스키마.
 // route.ts(서버)와 이후 page.tsx(클라이언트) 양쪽에서 공유한다.
 import { z } from 'zod';
+import { SIDO_NAMES } from '@/lib/region';
 
 /** 아버지의 음성에서 파악 가능한 의도 목록 */
 export const INTENT_ACTIONS = [
@@ -21,7 +22,7 @@ export const SHIFT_UNITS = [0.5, 1, 1.5, 2] as const;
 export const DISCOUNT_OPTIONS = [0, -10000, -20000, -30000] as const;
 export const WALL_COUNTS = [4, 5] as const;
 export const BILLING_PERIODS = ['currentMonth', 'prevMonth', 'allUnpaid'] as const;
-export const FOLLOW_UP_QUESTION_TYPES = ['ASK_SITE_NAME', 'ASK_PYEONG', 'ASK_WHICH_SITE_PAID'] as const;
+export const FOLLOW_UP_QUESTION_TYPES = ['ASK_SITE_NAME', 'ASK_PYEONG', 'ASK_WHICH_SITE_PAID', 'ASK_SITE_AREA'] as const;
 
 export type FollowUpQuestionType = (typeof FOLLOW_UP_QUESTION_TYPES)[number];
 export type BillingPeriod = (typeof BILLING_PERIODS)[number];
@@ -103,9 +104,16 @@ export const RecordShiftInput = {
   site: z.string().nullable().describe("현장명. 아버지가 말한 표현 그대로. 모르면 null."),
   date: z.string().nullable().describe("작업일 YYYY-MM-DD. '오늘/어제/그저께'는 컨텍스트의 today 기준으로 변환. 없으면 null(선택된 날짜 사용)."),
   shift: z.literal(SHIFT_UNITS).nullable().describe('공수. 반공수 0.5, 하루 1, 하루반 1.5, 이틀치 2. 없으면 null(1공수).'),
-  region: z.enum(['seoul', 'gwangju']).nullable().describe('지역 단가. 언급 없으면 null(서울).'),
+  region: z.enum(['seoul', 'gwangju']).nullable().describe('기준 단가(서울/광주). 아버지가 단가를 직접 말했을 때만. 현장 지역으로 추정하지 말 것. 없으면 null.'),
   isLeader: z.boolean().nullable().describe('오야지(시공 팀장)로 일했으면 true. 언급 없으면 null.'),
-  isOutOfTown: z.boolean().nullable().describe('시외 현장이면 true. 언급 없으면 null.'),
+  isOutOfTown: z.boolean().nullable().describe("아버지가 '시외'라고 직접 말했을 때만 true(아니라고 하면 false). 지역으로 추정하지 말고 null — 앱이 거주지와 siteArea 로 계산한다."),
+  siteArea: z
+    .object({
+      sido: z.enum(SIDO_NAMES).describe('현장의 시·도 정식 명칭.'),
+      sigungu: z.string().nullable().describe("도 소속이면 시·군 (예: '용인시'). 특별시·광역시·세종은 null."),
+    })
+    .nullable()
+    .describe("현장 지역. [현재 상황]의 현장 지역 목록에 있으면 null. 처음 보는 현장이면 현장명 속 지명으로 채운다(예: '용인 상가' → 경기도 용인시, '담양 펜션' → 전라남도 담양군). 여러 지역에 같은 이름이 있는 구·동이면 null."),
   discountAmount: z.literal(DISCOUNT_OPTIONS).nullable().describe('지인 할인(원, 음수). 언급 없으면 null(0).'),
   mealExpense: z.number().nullable().describe('선결제 식대/참값(원). 주유비는 제외. 없으면 null(0).'),
   client: z.string().nullable().describe('거래처/반장님 이름. 없으면 null.'),

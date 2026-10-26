@@ -20,6 +20,7 @@ import {
   type WoodworkingParams,
   type WoodworkingResult,
 } from '@/lib/calculations';
+import { formatArea, isOutOfTownArea, type Area } from '@/lib/region';
 
 /** 클라이언트가 함께 보내는 현재 상태 (interior://state/client-snapshot) */
 export interface PendingQuestion {
@@ -35,6 +36,8 @@ export interface ClientSnapshot {
   knownSites?: string[];
   unpaidSites?: string[];
   pendingQuestion?: PendingQuestion | null;
+  homeArea?: Area | null;              // 거주지 (시외 판정 기준)
+  siteAreas?: Record<string, Area>;    // 확인된 현장 지역
 }
 
 /** 도구 실행 결과 → 클라이언트 액션 */
@@ -52,6 +55,8 @@ export type ToolCallResult =
         mealExpense: number;
         client: string | null;
         memo: string | null;
+        siteArea: Area | null;
+        siteAreaIsNew: boolean; // 처음 확인된 지역이면 등록 확정 시 현장 목록에 저장한다
       };
       pay: ShiftPayResult;
     }
@@ -102,17 +107,31 @@ export function runRecordShift(args: RecordShiftArgs, snap: ClientSnapshot): Too
   if (!site) {
     return ask('ASK_SITE_NAME', '어느 현장에서 일하셨나요?', stripNulls(args));
   }
+  const siteName = matchSite(site, snap.knownSites ?? []) ?? site;
+
+  // 시외 여부: 아버지가 직접 말한 값 > 거주지와 현장 지역으로 계산한 값 > 아니오.
+  const storedArea = snap.siteAreas?.[siteName] ?? null;
+  const siteArea = storedArea ?? args.siteArea ?? null;
+  const areaOutOfTown = snap.homeArea && siteArea ? isOutOfTownArea(snap.homeArea, siteArea) : null;
+  if (args.isOutOfTown == null && snap.homeArea && areaOutOfTown === null) {
+    // 처음 보는 현장이라 지역을 모르면 한 번만 묻는다. 답은 현장 목록에 저장돼 다음부터는 묻지 않는다.
+    const hint = siteArea ? `${formatArea(siteArea)} 어느 시·군인가요?` : '어느 시·군에 있나요?';
+    return ask('ASK_SITE_AREA', `${siteName} 현장은 ${hint}`, stripNulls({ ...args, site: siteName }));
+  }
+
   const draft = {
-    site: matchSite(site, snap.knownSites ?? []) ?? site,
+    site: siteName,
     date: args.date ?? snap.selectedDate ?? snap.today ?? new Date().toISOString().slice(0, 10),
     shift: args.shift ?? 1,
     region: args.region ?? (INTERIOR_CONFIG.rates.defaultRegion as 'seoul' | 'gwangju'),
     isLeader: args.isLeader ?? false,
-    isOutOfTown: args.isOutOfTown ?? false,
+    isOutOfTown: args.isOutOfTown ?? areaOutOfTown ?? false,
     discountAmount: args.discountAmount ?? 0,
     mealExpense: args.mealExpense ?? 0,
     client: args.client ?? null,
     memo: args.memo ?? null,
+    siteArea,
+    siteAreaIsNew: !storedArea && siteArea !== null,
   };
   const pay = calculateShiftPay({
     region: draft.region,

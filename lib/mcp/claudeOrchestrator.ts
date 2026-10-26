@@ -5,6 +5,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { generateInteriorAgentSystemPrompt } from '@/constants/interiorContext';
+import { CalculateMaterialsInput, MarkShiftPaidInput, RecordShiftInput } from '@/constants/interpretIntent';
+import { formatArea, parseAreaText } from '@/lib/region';
 import {
   createInteriorMcpServer,
   type ClientSnapshot,
@@ -42,6 +44,12 @@ function buildUserContent(transcript: string, snap: ClientSnapshot): string {
     `- 현재 탭: ${snap.activeTab ?? '-'}`,
     `- 등록된 현장: ${snap.knownSites?.length ? snap.knownSites.join(', ') : '없음'}`,
     `- 미입금 현장: ${snap.unpaidSites?.length ? snap.unpaidSites.join(', ') : '없음'}`,
+    `- 거주지(시외 기준): ${snap.homeArea ? formatArea(snap.homeArea) : '미설정'}`,
+    `- 현장 지역: ${
+      snap.siteAreas && Object.keys(snap.siteAreas).length
+        ? Object.entries(snap.siteAreas).map(([site, area]) => `${site}=${formatArea(area)}`).join(', ')
+        : '없음'
+    }`,
   ];
   const pending = snap.pendingQuestion;
   if (pending) {
@@ -57,22 +65,34 @@ function buildUserContent(transcript: string, snap: ClientSnapshot): string {
   return lines.join('\n');
 }
 
+/** 도구 입력 스키마의 모든 필드를 null 로 채운 뒤 args 를 덮는다 (nullable 필드도 키는 필수). */
+function withNulls(shape: object, args: Record<string, unknown>): Record<string, unknown> {
+  return { ...Object.fromEntries(Object.keys(shape).map((k) => [k, null])), ...args };
+}
+
 /** 모델이 되묻기 답변을 도구 호출로 잇지 못했을 때, 초안 + 답변으로 원래 도구를 직접 완성한다. */
 function fallbackFromPending(
   pending: PendingQuestion,
   transcript: string,
+  snap: ClientSnapshot,
 ): { name: string; args: Record<string, unknown> } | null {
   const draft = pending.draftData ?? {};
   const answer = transcript.replace(/[.,?!]/g, '').trim();
   if (!answer) return null;
   switch (pending.questionType) {
     case 'ASK_SITE_NAME':
-      return { name: 'record_shift', args: { ...draft, site: answer } };
+      return { name: 'record_shift', args: withNulls(RecordShiftInput, { ...draft, site: answer }) };
+    case 'ASK_SITE_AREA': {
+      const siteArea = parseAreaText(answer, snap.homeArea ?? null);
+      return siteArea ? { name: 'record_shift', args: withNulls(RecordShiftInput, { ...draft, siteArea }) } : null;
+    }
     case 'ASK_WHICH_SITE_PAID':
-      return { name: 'mark_shift_paid', args: { ...draft, site: answer } };
+      return { name: 'mark_shift_paid', args: withNulls(MarkShiftPaidInput, { ...draft, site: answer }) };
     case 'ASK_PYEONG': {
       const num = answer.match(/\d+(\.\d+)?/);
-      return num ? { name: 'calculate_materials', args: { ...draft, pyeong: parseFloat(num[0]) } } : null;
+      return num
+        ? { name: 'calculate_materials', args: withNulls(CalculateMaterialsInput, { ...draft, pyeong: parseFloat(num[0]) }) }
+        : null;
     }
   }
 }
@@ -132,7 +152,7 @@ export async function orchestrate(transcript: string, snapshot: ClientSnapshot):
     let actions = results.filter((r): r is ToolCallResult => r !== null);
 
     if (actions.length === 0 && snapshot.pendingQuestion) {
-      const fb = fallbackFromPending(snapshot.pendingQuestion, transcript);
+      const fb = fallbackFromPending(snapshot.pendingQuestion, transcript, snapshot);
       const r = fb ? await callMcpTool(mcp, fb.name, fb.args) : null;
       if (r) actions = [r];
     }

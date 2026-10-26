@@ -4,6 +4,7 @@
 import { INTERIOR_CONFIG } from '@/constants/interiorConfig';
 import type { CalculateMaterialsArgs, RecordShiftArgs } from '@/constants/interpretIntent';
 import { toLocalISODate } from '@/lib/calculations';
+import { parseAreaText } from '@/lib/region';
 import {
   runCalculateMaterials,
   runFilterSitePhotos,
@@ -22,7 +23,7 @@ export interface LocalRouteResult {
 
 const EMPTY_SHIFT: RecordShiftArgs = {
   site: null, date: null, shift: null, region: null, isLeader: null,
-  isOutOfTown: null, discountAmount: null, mealExpense: null, client: null, memo: null,
+  isOutOfTown: null, siteArea: null, discountAmount: null, mealExpense: null, client: null, memo: null,
 };
 
 const EMPTY_MATERIAL: CalculateMaterialsArgs = {
@@ -57,6 +58,11 @@ export function routeLocally(text: string, snap: ClientSnapshot): LocalRouteResu
     switch (pending.questionType) {
       case 'ASK_SITE_NAME':
         return done([runRecordShift({ ...EMPTY_SHIFT, ...(draft as Partial<RecordShiftArgs>), site: cleanSiteAnswer(text) }, snap)]);
+      case 'ASK_SITE_AREA': {
+        const siteArea = parseAreaText(text, snap.homeArea ?? null);
+        if (!siteArea) return done([], '지역을 알아듣지 못했습니다. 시나 군 이름으로 말씀해 주세요.');
+        return done([runRecordShift({ ...EMPTY_SHIFT, ...(draft as Partial<RecordShiftArgs>), siteArea }, snap)]);
+      }
       case 'ASK_PYEONG': {
         const num = text.match(/\d+(\.\d+)?/);
         if (!num) return done([], '숫자(평수)를 인식하지 못했습니다.');
@@ -118,7 +124,8 @@ export function routeLocally(text: string, snap: ClientSnapshot): LocalRouteResu
   else if (has(text, '공수 반', '공수반', '하루 반', '야간', '1.5')) shift = 1.5;
   else if (has(text, '이공', '2공', '이틀')) shift = 2;
 
-  const isOutOfTown = has(text, '시외', '용인', '이천', '평택');
+  // 시외 여부는 직접 말했을 때만 정하고, 나머지는 거주지·현장 지역으로 runRecordShift 가 계산한다.
+  const isOutOfTown = text.includes('시외');
   const isLeader = has(text, '오야지', '내가 팀장', '내가 반장');
 
   let mealExpense = 0;

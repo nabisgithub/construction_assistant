@@ -3,12 +3,17 @@
 // 공수 장부 · 입금 계좌 · 공수 등록 폼 상태. 영속화는 lib/storage/shiftStorage 가 담당한다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Region, ShiftRecord } from '@/lib/calculations';
+import { isOutOfTownArea, type Area } from '@/lib/region';
 import {
   SHIFTS_KEY,
   loadBankAccount,
+  loadHomeArea,
   loadShifts,
+  loadSiteAreas,
   saveBankAccount,
+  saveHomeArea,
   saveShifts,
+  saveSiteAreas,
 } from '@/lib/storage/shiftStorage';
 
 export interface ShiftForm {
@@ -21,6 +26,7 @@ export interface ShiftForm {
   discountAmount: number;
   expense: string; // 입력창 값 그대로 (원)
   memo: string;
+  siteArea: Area | null; // 현장 지역 (시외 판정). 모르면 null
 }
 
 export const DEFAULT_SHIFT_FORM: ShiftForm = {
@@ -33,6 +39,7 @@ export const DEFAULT_SHIFT_FORM: ShiftForm = {
   discountAmount: 0,
   expense: '',
   memo: '',
+  siteArea: null,
 };
 
 const DEFAULT_BANK_ACCOUNT = '국민 123-456-78901 홍길동';
@@ -60,17 +67,21 @@ export function useShifts() {
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
   const [bankAccount, setBankAccountState] = useState(DEFAULT_BANK_ACCOUNT);
   const [form, setForm] = useState<ShiftForm>(DEFAULT_SHIFT_FORM);
+  const [homeArea, setHomeAreaState] = useState<Area | null>(null);
+  const [siteAreas, setSiteAreas] = useState<Record<string, Area>>({});
   const [hydrated, setHydrated] = useState(false);
   const skipSave = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadShifts(), loadBankAccount()])
-      .then(([saved, account]) => {
+    Promise.all([loadShifts(), loadBankAccount(), loadHomeArea(), loadSiteAreas()])
+      .then(([saved, account, home, areas]) => {
         if (cancelled) return;
         // loadShifts 가 Preferences → localStorage 를 동기화하므로 이후 localStorage 만 보면 된다.
         setShifts(saved.length === 0 && !hasSavedLedger() ? demoShifts() : saved);
         if (account) setBankAccountState(account);
+        setHomeAreaState(home);
+        setSiteAreas(areas);
         setHydrated(true);
       })
       .catch(console.error);
@@ -93,6 +104,27 @@ export function useShifts() {
     setBankAccountState(value);
     saveBankAccount(value).catch(console.error);
   }, []);
+
+  const setHomeArea = useCallback((area: Area) => {
+    setHomeAreaState(area);
+    saveHomeArea(area).catch(console.error);
+  }, []);
+
+  /** 확인된 현장 지역을 기억한다. 다음부터는 이 현장의 시외 여부를 묻지 않는다. */
+  const rememberSiteArea = useCallback(
+    (site: string, area: Area) => {
+      const next = { ...siteAreas, [site]: area };
+      setSiteAreas(next);
+      saveSiteAreas(next).catch(console.error);
+    },
+    [siteAreas],
+  );
+
+  /** 거주지 기준 시외 여부. 거주지나 현장 지역을 몰라 판단할 수 없으면 null */
+  const outOfTownFor = useCallback(
+    (area: Area | null) => (homeArea && area ? isOutOfTownArea(homeArea, area) : null),
+    [homeArea],
+  );
 
   const addShift = useCallback((record: ShiftRecord) => {
     setShifts((prev) => [record, ...prev]);
@@ -127,6 +159,7 @@ export function useShifts() {
       site: '',
       expense: '',
       memo: '',
+      siteArea: null,
       isLeader: false,
       isOutOfTown: false,
       discountAmount: 0,
@@ -144,6 +177,12 @@ export function useShifts() {
   );
 
   return {
+    hydrated,
+    homeArea,
+    setHomeArea,
+    siteAreas,
+    rememberSiteArea,
+    outOfTownFor,
     shifts,
     knownSites,
     unpaidSites,

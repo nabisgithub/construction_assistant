@@ -5,9 +5,11 @@ interface HeaderProps {
   year: number;
   month: number;
   unpaidTotal: number;
+  homeLabel: string | null; // 거주지 (시외 기준)
+  onHomeClick: () => void;
 }
 
-export default function Header({ year, month, unpaidTotal }: HeaderProps) {
+export default function Header({ year, month, unpaidTotal, homeLabel, onHomeClick }: HeaderProps) {
   return (
     <header className="bg-[#ceb5a7] px-5 pt-6 pb-5 sticky top-0 z-30 border-b-4 border-black">
       <div className="max-w-md mx-auto flex justify-between items-end">
@@ -15,6 +17,13 @@ export default function Header({ year, month, unpaidTotal }: HeaderProps) {
           <div className="flex items-center gap-2 text-sm font-bold tracking-wider text-black mb-1">
             <span className="w-3 h-3 rounded-full bg-black animate-pulse border-2 border-white" />
             현장비서 PRO
+            <button
+              type="button"
+              onClick={onHomeClick}
+              className="ml-1 px-2 py-0.5 bg-white rounded-md border-2 border-black text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-none"
+            >
+              🏠 {homeLabel ?? '거주지 설정'}
+            </button>
           </div>
           <h1 className="text-3xl font-black tracking-tight flex items-center gap-1 uppercase">
             {year}.{String(month).padStart(2, '0')}

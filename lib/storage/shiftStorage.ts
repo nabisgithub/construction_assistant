@@ -5,9 +5,12 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import type { ShiftRecord } from '@/lib/calculations';
+import type { Area } from '@/lib/region';
 
 export const SHIFTS_KEY = 'father_shifts_v13';
 export const BANK_ACCOUNT_KEY = 'father_bank_account';
+export const HOME_AREA_KEY = 'father_home_area';
+export const SITE_AREAS_KEY = 'father_site_areas';
 
 const isBrowser = () => typeof window !== 'undefined';
 
@@ -79,4 +82,34 @@ export async function loadBankAccount(): Promise<string | null> {
 
 export async function saveBankAccount(bankAccount: string): Promise<void> {
   await writeSynced(BANK_ACCOUNT_KEY, bankAccount);
+}
+
+// -------------------------------------------------------------
+// [4] 거주지 · 현장별 지역 (시외 판정용)
+// -------------------------------------------------------------
+async function readJson<T>(key: string): Promise<T | null> {
+  const raw = await readSynced(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadHomeArea(): Promise<Area | null> {
+  return readJson<Area>(HOME_AREA_KEY);
+}
+
+export async function saveHomeArea(area: Area): Promise<void> {
+  await writeSynced(HOME_AREA_KEY, JSON.stringify(area));
+}
+
+/** 현장명 → 지역. 현장마다 한 번 확인하면 이후에는 묻지 않는다. */
+export async function loadSiteAreas(): Promise<Record<string, Area>> {
+  return (await readJson<Record<string, Area>>(SITE_AREAS_KEY)) ?? {};
+}
+
+export async function saveSiteAreas(siteAreas: Record<string, Area>): Promise<void> {
+  await writeSynced(SITE_AREAS_KEY, JSON.stringify(siteAreas));
 }
